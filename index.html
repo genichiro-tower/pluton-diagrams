@@ -47,8 +47,10 @@
         .left-panel.collapsed #jsonEditor,
         .left-panel.collapsed .panel-header .render-btn,
         .left-panel.collapsed .panel-header .export-btn,
+        .left-panel.collapsed .panel-header .share-btn,
         .left-panel.collapsed .diagram-list,
-        .left-panel.collapsed .diagram-actions {
+        .left-panel.collapsed .diagram-actions,
+        .left-panel.collapsed .force-controls {
             display: none;
         }
 
@@ -120,6 +122,14 @@
 
         .panel-header .toggle-btn:hover {
             background: rgba(255, 255, 255, 0.1);
+        }
+
+        .panel-header .share-btn {
+            background: #2d7d46;
+        }
+
+        .panel-header .share-btn:hover {
+            background: #3a9d5a;
         }
 
         .panel-header .export-btn {
@@ -283,6 +293,82 @@
             border-color: #0e639c;
         }
 
+        .force-controls {
+            padding: 8px 16px;
+            background: #1e1e1e;
+            border-bottom: 1px solid #3c3c3c;
+            display: flex;
+            gap: 12px;
+            flex-shrink: 0;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .force-controls label {
+            color: #cccccc;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .force-controls input[type="range"] {
+            width: 80px;
+            background: #2d2d2d;
+            height: 4px;
+            border-radius: 2px;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .force-controls input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #0e639c;
+            cursor: pointer;
+        }
+
+        .force-controls .value {
+            color: #888;
+            font-size: 10px;
+            min-width: 25px;
+        }
+
+        .force-controls button {
+            background: #0e639c;
+            color: white;
+            border: none;
+            padding: 3px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            transition: background 0.2s;
+        }
+
+        .force-controls button:hover {
+            background: #1177bb;
+        }
+
+        .force-controls button:active {
+            transform: scale(0.95);
+        }
+
+        .force-controls button.danger {
+            background: #c62828;
+        }
+
+        .force-controls button.danger:hover {
+            background: #d32f2f;
+        }
+
+        .force-controls .status {
+            color: #666;
+            font-size: 10px;
+            margin-left: auto;
+        }
+
         #jsonEditor {
             flex: 1;
             background: #1e1e1e;
@@ -336,7 +422,6 @@
             cursor: grabbing;
         }
 
-        /* Center button on canvas */
         .canvas-overlay {
             position: absolute;
             bottom: 30px;
@@ -593,6 +678,19 @@
                 padding: 6px 14px;
                 font-size: 12px;
             }
+
+            .force-controls {
+                padding: 6px 12px;
+                gap: 8px;
+            }
+
+            .force-controls label {
+                font-size: 10px;
+            }
+
+            .force-controls input[type="range"] {
+                width: 60px;
+            }
         }
 
         #jsonEditor::-webkit-scrollbar {
@@ -623,6 +721,7 @@
                     <span>📝 Diagrams</span>
                 </div>
                 <div class="right-section">
+                    <button class="share-btn" onclick="shareDiagram()">🔗 Share</button>
                     <button class="render-btn" onclick="renderDiagram()">🔄 Render</button>
                     <div class="export-dropdown">
                         <button class="export-btn" onclick="toggleExportDropdown()">📥 Export</button>
@@ -656,6 +755,27 @@
                     onchange="importDiagramFile(event)" />
             </div>
 
+            <div class="force-controls">
+                <label>
+                    Repulsion:
+                    <input type="range" id="repulsionStrength" min="1" max="10" value="5" step="0.5" />
+                    <span class="value" id="repulsionValue">5.0</span>
+                </label>
+                <label>
+                    Spring:
+                    <input type="range" id="springStrength" min="0.1" max="2" value="0.8" step="0.1" />
+                    <span class="value" id="springValue">0.8</span>
+                </label>
+                <label>
+                    Damping:
+                    <input type="range" id="dampingStrength" min="0.5" max="0.98" value="0.9" step="0.01" />
+                    <span class="value" id="dampingValue">0.90</span>
+                </label>
+                <button onclick="startForceLayout()">▶ Layout</button>
+                <button class="danger" onclick="stopForceLayout()">⏹ Stop</button>
+                <span class="status" id="forceStatus">Ready</span>
+            </div>
+
             <textarea id="jsonEditor" spellcheck="false"></textarea>
         </div>
 
@@ -669,6 +789,9 @@
             <div class="canvas-overlay">
                 <button onclick="centerDiagram()">
                     <span class="icon">🎯</span> Center Diagram
+                </button>
+                <button onclick="startForceLayout()" id="layoutBtn">
+                    <span class="icon">🌀</span> Auto Layout
                 </button>
             </div>
             <canvas id="diagramCanvas"></canvas>
@@ -771,6 +894,316 @@
         let editor = null;
         let errorMsg = null;
 
+        // Force engine variables
+        let forceEngine = null;
+        let isForceRunning = false;
+
+        // ============================================================
+        // FORCE-DIRECTED LAYOUT ENGINE
+        // ============================================================
+        class ForceLayoutEngine {
+            constructor(renderer, statePositions) {
+                this.renderer = renderer;
+                this.statePositions = statePositions;
+                this.animationFrame = null;
+                this.isRunning = false;
+                this.iterations = 0;
+
+                this.repulsionStrength = 5.0;
+                this.springStrength = 0.8;
+                this.damping = 0.9;
+                this.maxDisplacement = 50;
+
+                this.velocities = {};
+                this.masses = {};
+                this.springs = [];
+                this.bounds = null;
+                this.padding = 50;
+
+                this.buildSprings();
+                this.calculateBounds();
+                this.initPhysics();
+            }
+
+            buildSprings() {
+                this.springs = [];
+                const transitions = this.renderer._transitions || [];
+
+                for (const t of transitions) {
+                    const fromPos = this.statePositions[t.from];
+                    const toPos = this.statePositions[t.to];
+                    if (fromPos && toPos) {
+                        this.springs.push({
+                            from: t.from,
+                            to: t.to,
+                            fromPos: fromPos,
+                            toPos: toPos,
+                            restLength: this.calculateRestLength(fromPos, toPos)
+                        });
+                    }
+                }
+            }
+
+            calculateRestLength(fromPos, toPos) {
+                const dx = fromPos.centerX - toPos.centerX;
+                const dy = fromPos.centerY - toPos.centerY;
+                return Math.sqrt(dx * dx + dy * dy) || 150;
+            }
+
+            calculateBounds() {
+                let minX = Infinity,
+                    minY = Infinity,
+                    maxX = -Infinity,
+                    maxY = -Infinity;
+
+                for (const [id, pos] of Object.entries(this.statePositions)) {
+                    minX = Math.min(minX, pos.x);
+                    minY = Math.min(minY, pos.y);
+                    maxX = Math.max(maxX, pos.x + pos.width);
+                    maxY = Math.max(maxY, pos.y + pos.height);
+                }
+
+                const canvasWidth = this.renderer.canvas.width / this.renderer.zoom;
+                const canvasHeight = this.renderer.canvas.height / this.renderer.zoom;
+
+                this.bounds = {
+                    minX: -canvasWidth / 2,
+                    minY: -canvasHeight / 2,
+                    maxX: canvasWidth / 2,
+                    maxY: canvasHeight / 2
+                };
+            }
+
+            initPhysics() {
+                this.velocities = {};
+                this.masses = {};
+
+                for (const [id, pos] of Object.entries(this.statePositions)) {
+                    this.velocities[id] = { vx: 0, vy: 0 };
+                    this.masses[id] = 1.0;
+                }
+            }
+
+            setParameters(repulsion, spring, damping) {
+                this.repulsionStrength = repulsion;
+                this.springStrength = spring;
+                this.damping = damping;
+            }
+
+            step() {
+                const numStates = Object.keys(this.statePositions).length;
+                if (numStates === 0) return;
+
+                this.calculateBounds();
+
+                const forces = {};
+
+                for (const [id, pos] of Object.entries(this.statePositions)) {
+                    const centerX = pos.centerX;
+                    const centerY = pos.centerY;
+
+                    let fx = 0;
+                    let fy = 0;
+
+                    for (const [otherId, otherPos] of Object.entries(this.statePositions)) {
+                        if (otherId === id) continue;
+
+                        const dx = centerX - otherPos.centerX;
+                        const dy = centerY - otherPos.centerY;
+                        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+
+                        const repForce = this.repulsionStrength * 10000 / (dist * dist + 100);
+                        fx += (dx / dist) * repForce;
+                        fy += (dy / dist) * repForce;
+                    }
+
+                    for (const spring of this.springs) {
+                        let otherId = null;
+                        let otherPos = null;
+
+                        if (spring.from === id) {
+                            otherId = spring.to;
+                            otherPos = spring.toPos;
+                        } else if (spring.to === id) {
+                            otherId = spring.from;
+                            otherPos = spring.fromPos;
+                        }
+
+                        if (!otherPos) continue;
+
+                        const dx = centerX - otherPos.centerX;
+                        const dy = centerY - otherPos.centerY;
+                        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+
+                        const displacement = dist - spring.restLength;
+                        const springForce = this.springStrength * displacement;
+                        fx -= (dx / dist) * springForce;
+                        fy -= (dy / dist) * springForce;
+                    }
+
+                    const margin = 50;
+                    const boundForce = 2.0;
+
+                    if (centerX < this.bounds.minX + margin) {
+                        fx += boundForce * (this.bounds.minX + margin - centerX);
+                    }
+                    if (centerX > this.bounds.maxX - margin) {
+                        fx -= boundForce * (centerX - (this.bounds.maxX - margin));
+                    }
+                    if (centerY < this.bounds.minY + margin) {
+                        fy += boundForce * (this.bounds.minY + margin - centerY);
+                    }
+                    if (centerY > this.bounds.maxY - margin) {
+                        fy -= boundForce * (centerY - (this.bounds.maxY - margin));
+                    }
+
+                    forces[id] = { fx, fy };
+                }
+
+                let maxMovement = 0;
+
+                for (const [id, pos] of Object.entries(this.statePositions)) {
+                    const force = forces[id];
+                    if (!force) continue;
+
+                    const mass = this.masses[id] || 1.0;
+
+                    this.velocities[id].vx = (this.velocities[id].vx + force.fx / mass) * this.damping;
+                    this.velocities[id].vy = (this.velocities[id].vy + force.fy / mass) * this.damping;
+
+                    const maxVel = 20;
+                    const vx = Math.max(-maxVel, Math.min(maxVel, this.velocities[id].vx));
+                    const vy = Math.max(-maxVel, Math.min(maxVel, this.velocities[id].vy));
+
+                    pos.x += vx;
+                    pos.y += vy;
+                    pos.centerX = pos.x + pos.width / 2;
+                    pos.centerY = pos.y + pos.height / 2;
+
+                    const movement = Math.sqrt(vx * vx + vy * vy);
+                    maxMovement = Math.max(maxMovement, movement);
+                }
+
+                this.iterations++;
+                return maxMovement;
+            }
+
+            run(steps = 200, callback) {
+                if (this.isRunning) return;
+                this.isRunning = true;
+
+                let remainingSteps = steps;
+                let totalMaxMovement = 0;
+
+                const stepLoop = () => {
+                    if (!this.isRunning) return;
+
+                    const maxMovement = this.step();
+                    totalMaxMovement = Math.max(totalMaxMovement, maxMovement);
+                    remainingSteps--;
+
+                    if (remainingSteps % 5 === 0 || remainingSteps === 0) {
+                        this.renderer.render();
+                    }
+
+                    const status = document.getElementById('forceStatus');
+                    if (status) {
+                        status.textContent = `Running: ${this.iterations} iterations, max movement: ${maxMovement.toFixed(2)}`;
+                    }
+
+                    if (maxMovement < 0.001 || remainingSteps <= 0) {
+                        this.stop();
+                        if (callback) callback(totalMaxMovement);
+                        return;
+                    }
+
+                    this.animationFrame = requestAnimationFrame(stepLoop);
+                };
+
+                stepLoop();
+            }
+
+            stop() {
+                this.isRunning = false;
+                if (this.animationFrame) {
+                    cancelAnimationFrame(this.animationFrame);
+                    this.animationFrame = null;
+                }
+                const status = document.getElementById('forceStatus');
+                if (status) {
+                    status.textContent = `Stopped after ${this.iterations} iterations`;
+                }
+                isForceRunning = false;
+            }
+
+            reset() {
+                this.stop();
+                this.iterations = 0;
+                this.initPhysics();
+                const status = document.getElementById('forceStatus');
+                if (status) {
+                    status.textContent = 'Ready';
+                }
+                isForceRunning = false;
+            }
+        }
+
+        // ============================================================
+        // FORCE LAYOUT CONTROL FUNCTIONS
+        // ============================================================
+        function startForceLayout() {
+            if (!renderer || !renderer.statePositions || Object.keys(renderer.statePositions).length === 0) {
+                showError('No diagram loaded');
+                return;
+            }
+
+            renderer.savePositions();
+
+            if (forceEngine) {
+                forceEngine.stop();
+                forceEngine = null;
+            }
+
+            const repulsion = parseFloat(document.getElementById('repulsionStrength').value);
+            const spring = parseFloat(document.getElementById('springStrength').value);
+            const damping = parseFloat(document.getElementById('dampingStrength').value);
+
+            forceEngine = new ForceLayoutEngine(renderer, renderer.statePositions);
+            forceEngine.setParameters(repulsion, spring, damping);
+
+            isForceRunning = true;
+            document.getElementById('forceStatus').textContent = 'Running...';
+            document.getElementById('forceStatus').style.color = '#4caf50';
+
+            // Update button text
+            const layoutBtn = document.getElementById('layoutBtn');
+            if (layoutBtn) layoutBtn.textContent = '⏳ Running';
+
+            forceEngine.run(200, (maxMovement) => {
+                isForceRunning = false;
+                document.getElementById('forceStatus').textContent = 'Converged';
+                document.getElementById('forceStatus').style.color = '#888';
+                if (layoutBtn) layoutBtn.textContent = '🌀 Auto Layout';
+
+                renderer.savePositions();
+                showSuccess('Diagram layout complete!');
+            });
+        }
+
+        function stopForceLayout() {
+            if (forceEngine) {
+                forceEngine.stop();
+                isForceRunning = false;
+                document.getElementById('forceStatus').textContent = 'Stopped';
+                document.getElementById('forceStatus').style.color = '#ff6b6b';
+                const layoutBtn = document.getElementById('layoutBtn');
+                if (layoutBtn) layoutBtn.textContent = '🌀 Auto Layout';
+            }
+        }
+
+        // ============================================================
+        // LOAD FUNCTIONS
+        // ============================================================
         function loadDiagrams() {
             try {
                 const saved = localStorage.getItem(DIAGRAMS_STORAGE_KEY);
@@ -819,20 +1252,16 @@
         }
 
         // ============================================================
-        // CENTER DIAGRAM FUNCTION
+        // CENTER DIAGRAM
         // ============================================================
         function centerDiagram() {
             if (!renderer) {
                 showError('Renderer not initialized');
                 return;
             }
-
-            // Reset zoom and offset
             renderer.zoom = 1;
             renderer.offsetX = 0;
             renderer.offsetY = 0;
-
-            // Re-render
             renderer.render();
             showSuccess('Diagram centered');
         }
@@ -847,12 +1276,9 @@
             const tooltip = document.getElementById('noteTooltip');
             const statusBar = document.getElementById('statusBar');
 
-            // Initialize renderer
             renderer = new DiagramRenderer(canvas, tooltip, statusBar);
 
-            // Load diagrams
             if (!loadDiagrams() || diagrams.length === 0) {
-                // Create default diagram
                 const defaultId = 'diagram_default_' + Date.now();
                 diagrams.push({
                     id: defaultId,
@@ -863,7 +1289,6 @@
                 saveDiagrams();
             }
 
-            // Load current diagram
             if (!loadCurrentDiagramId() || !getDiagram(currentDiagramId)) {
                 if (diagrams.length > 0) {
                     currentDiagramId = diagrams[0].id;
@@ -871,11 +1296,11 @@
                 }
             }
 
-            // Render the diagram list
             renderDiagramList();
 
-            // Load the current diagram
-            if (currentDiagramId) {
+            const loadedFromURL = loadDiagramFromURL();
+
+            if (!loadedFromURL && currentDiagramId) {
                 const diagram = getCurrentDiagram();
                 if (diagram) {
                     editor.value = JSON.stringify(diagram.json, null, 2);
@@ -883,8 +1308,30 @@
                 }
             }
 
-            // Setup auto-save
             setupAutoSave();
+
+            // Setup force control sliders
+            setupForceControls();
+        }
+
+        function setupForceControls() {
+            const repulsionInput = document.getElementById('repulsionStrength');
+            const repulsionValue = document.getElementById('repulsionValue');
+            repulsionInput.addEventListener('input', () => {
+                repulsionValue.textContent = parseFloat(repulsionInput.value).toFixed(1);
+            });
+
+            const springInput = document.getElementById('springStrength');
+            const springValue = document.getElementById('springValue');
+            springInput.addEventListener('input', () => {
+                springValue.textContent = parseFloat(springInput.value).toFixed(1);
+            });
+
+            const dampingInput = document.getElementById('dampingStrength');
+            const dampingValue = document.getElementById('dampingValue');
+            dampingInput.addEventListener('input', () => {
+                dampingValue.textContent = parseFloat(dampingInput.value).toFixed(2);
+            });
         }
 
         // ============================================================
@@ -941,16 +1388,13 @@
             const diagram = getDiagram(id);
             if (!diagram) return;
 
-            // Save current diagram before switching
             saveCurrentDiagram();
 
             currentDiagramId = id;
             saveCurrentDiagramId();
 
-            // Update editor
             editor.value = JSON.stringify(diagram.json, null, 2);
 
-            // Load into renderer
             if (renderer) {
                 renderer.loadData(diagram.json, diagram.positions || null);
             }
@@ -981,7 +1425,6 @@
                 const jsonData = JSON.parse(editor.value);
                 diagram.json = jsonData;
 
-                // Save positions from renderer
                 if (renderer && renderer.statePositions) {
                     const positions = {};
                     for (const [id, pos] of Object.entries(renderer.statePositions)) {
@@ -1095,10 +1538,8 @@
             const diagram = getCurrentDiagram();
             if (!diagram) return;
 
-            // Save current state first
             if (!saveCurrentDiagram()) return;
 
-            // Create export data with both JSON and positions
             const exportData = {
                 type: 'diagram_export',
                 version: '1.0',
@@ -1128,7 +1569,6 @@
                 try {
                     const data = JSON.parse(e.target.result);
 
-                    // Validate the import data
                     if (data.type !== 'diagram_export') {
                         showError('Invalid diagram file format');
                         return;
@@ -1139,14 +1579,12 @@
                         return;
                     }
 
-                    // Check if a diagram with this name already exists
                     const existing = diagrams.find(d => d.name === data.name);
                     let name = data.name;
                     if (existing) {
                         name = data.name + ' (imported)';
                     }
 
-                    // Create new diagram
                     const id = 'diagram_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
                     const newDiagram = {
                         id: id,
@@ -1161,7 +1599,6 @@
                     renderDiagramList();
                     showSuccess(`Diagram "${newDiagram.name}" imported successfully`);
 
-                    // Reset file input
                     event.target.value = '';
                 } catch (err) {
                     showError('Failed to import diagram: ' + err.message);
@@ -1169,6 +1606,360 @@
                 }
             };
             reader.readAsText(file);
+        }
+
+        // ============================================================
+        // SHARE FUNCTIONALITY
+        // ============================================================
+        function shareDiagram() {
+            if (!currentDiagramId) {
+                showError('No diagram selected');
+                return;
+            }
+
+            saveCurrentDiagram();
+
+            const diagram = getCurrentDiagram();
+            if (!diagram) {
+                showError('Diagram not found');
+                return;
+            }
+
+            try {
+                const jsonData = diagram.json;
+                const binary = encodeDiagramBinary(jsonData);
+                let base64 = '';
+                const chunkSize = 8192;
+                for (let i = 0; i < binary.length; i += chunkSize) {
+                    const chunk = binary.slice(i, i + chunkSize);
+                    base64 += String.fromCharCode.apply(null, chunk);
+                }
+                base64 = btoa(base64);
+
+                const urlSafe = base64
+                    .replace(/\+/g, '-')
+                    .replace(/\//g, '_')
+                    .replace(/=+$/, '');
+
+                const shareUrl = `${window.location.origin}${window.location.pathname}?d=${urlSafe}`;
+
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(shareUrl).then(() => {
+                        showSuccess('Share link copied to clipboard!');
+                    }).catch(() => {
+                        copyToClipboardFallback(shareUrl);
+                    });
+                } else {
+                    copyToClipboardFallback(shareUrl);
+                }
+            } catch (e) {
+                showError('Failed to share: ' + e.message);
+                console.error(e);
+            }
+        }
+
+        function copyToClipboardFallback(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                showSuccess('Share link copied to clipboard!');
+            } catch (e) {
+                showError('Failed to copy to clipboard. Please copy the URL manually: ' + text);
+            }
+            document.body.removeChild(textarea);
+        }
+
+        function loadDiagramFromURL() {
+            const params = new URLSearchParams(window.location.search);
+            const urlSafe = params.get('d');
+
+            if (!urlSafe) return false;
+
+            try {
+                let base64 = urlSafe.replace(/-/g, '+').replace(/_/g, '/');
+                while (base64.length % 4) {
+                    base64 += '=';
+                }
+
+                const binaryString = atob(base64);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+
+                const diagramData = decodeDiagramBinary(bytes);
+
+                const existing = diagrams.find(d => {
+                    return JSON.stringify(d.json) === JSON.stringify(diagramData);
+                });
+
+                if (existing) {
+                    selectDiagram(existing.id);
+                    showSuccess('Loaded diagram from link');
+                    return true;
+                }
+
+                const name = diagramData.title || 'Shared Diagram';
+                const id = 'diagram_shared_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+
+                const fullDiagram = {
+                    title: name,
+                    description: 'Imported from shared link',
+                    version: '1.0',
+                    states: diagramData.states,
+                    transitions: diagramData.transitions,
+                    defaults: defaultDiagram.json.defaults,
+                    layout: defaultDiagram.json.layout,
+                    style: defaultDiagram.json.style
+                };
+
+                const newDiagram = {
+                    id: id,
+                    name: name,
+                    json: fullDiagram,
+                    positions: null
+                };
+
+                diagrams.push(newDiagram);
+                saveDiagrams();
+                selectDiagram(id);
+                renderDiagramList();
+                showSuccess('Diagram loaded from share link');
+
+                const newUrl = window.location.origin + window.location.pathname;
+                window.history.replaceState({}, document.title, newUrl);
+
+                return true;
+            } catch (e) {
+                console.error('Failed to load diagram from URL:', e);
+                showError('Failed to load diagram from link: ' + e.message);
+                return false;
+            }
+        }
+
+        // ============================================================
+        // BINARY ENCODING / DECODING
+        // ============================================================
+        function varintEncode(value, bytes) {
+            const result = [];
+            while (value > 127) {
+                result.push((value & 127) | 128);
+                value >>= 7;
+            }
+            result.push(value);
+            return result;
+        }
+
+        function varintDecode(bytes, offset) {
+            let result = 0;
+            let shift = 0;
+            while (offset < bytes.length) {
+                const byte = bytes[offset++];
+                result |= (byte & 127) << shift;
+                if (!(byte & 128)) {
+                    return { value: result, offset: offset };
+                }
+                shift += 7;
+            }
+            return { value: result, offset: offset };
+        }
+
+        function encodeString(str) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(str);
+            const lenBytes = varintEncode(data.length);
+            return new Uint8Array([...lenBytes, ...data]);
+        }
+
+        function decodeString(bytes, offset) {
+            const lenResult = varintDecode(bytes, offset);
+            const len = lenResult.value;
+            offset = lenResult.offset;
+            const decoder = new TextDecoder();
+            const str = decoder.decode(bytes.slice(offset, offset + len));
+            return { value: str, offset: offset + len };
+        }
+
+        function encodeFloat32(value) {
+            const buffer = new ArrayBuffer(4);
+            new DataView(buffer).setFloat32(0, value, true);
+            return new Uint8Array(buffer);
+        }
+
+        function decodeFloat32(bytes, offset) {
+            const buffer = bytes.slice(offset, offset + 4).buffer;
+            const value = new DataView(buffer).getFloat32(0, true);
+            return { value: value, offset: offset + 4 };
+        }
+
+        function encodeDiagramBinary(diagram) {
+            const parts = [];
+
+            parts.push(1);
+
+            const states = diagram.states || [];
+            const stateCountBytes = varintEncode(states.length);
+            parts.push(...stateCountBytes);
+
+            for (const state of states) {
+                const idBytes = varintEncode(state.id.length);
+                parts.push(...idBytes);
+                const encoder = new TextEncoder();
+                parts.push(...encoder.encode(state.id));
+
+                const labelBytes = encodeString(state.label || state.id);
+                parts.push(...labelBytes);
+
+                const type = state.type === 'terminal' ? 1 : (state.type === 'stall' ? 2 : 0);
+                parts.push(type);
+
+                const x = state.x || 0;
+                const y = state.y || 0;
+                const w = state.width || 160;
+                const h = state.height || 70;
+                parts.push(...encodeFloat32(x));
+                parts.push(...encodeFloat32(y));
+                parts.push(...encodeFloat32(w));
+                parts.push(...encodeFloat32(h));
+            }
+
+            const transitions = diagram.transitions || [];
+            const transitionCountBytes = varintEncode(transitions.length);
+            parts.push(...transitionCountBytes);
+
+            for (const trans of transitions) {
+                const idBytes = varintEncode(trans.id.length);
+                parts.push(...idBytes);
+                const encoder = new TextEncoder();
+                parts.push(...encoder.encode(trans.id));
+
+                const fromBytes = varintEncode(trans.from.length);
+                parts.push(...fromBytes);
+                parts.push(...encoder.encode(trans.from));
+
+                const toBytes = varintEncode(trans.to.length);
+                parts.push(...toBytes);
+                parts.push(...encoder.encode(trans.to));
+
+                const label = trans.label || '';
+                const labelBytes = encodeString(label);
+                parts.push(...labelBytes);
+
+                const note = trans.note || '';
+                const noteBytes = encodeString(note);
+                parts.push(...noteBytes);
+            }
+
+            return new Uint8Array(parts);
+        }
+
+        function decodeDiagramBinary(bytes) {
+            let offset = 0;
+
+            const version = bytes[offset++];
+            if (version !== 1) {
+                throw new Error('Unsupported binary version: ' + version);
+            }
+
+            const stateCountResult = varintDecode(bytes, offset);
+            const stateCount = stateCountResult.value;
+            offset = stateCountResult.offset;
+
+            const states = [];
+            const decoder = new TextDecoder();
+
+            for (let i = 0; i < stateCount; i++) {
+                const idLenResult = varintDecode(bytes, offset);
+                const idLen = idLenResult.value;
+                offset = idLenResult.offset;
+                const id = decoder.decode(bytes.slice(offset, offset + idLen));
+                offset += idLen;
+
+                const labelResult = decodeString(bytes, offset);
+                const label = labelResult.value;
+                offset = labelResult.offset;
+
+                const typeCode = bytes[offset++];
+                const type = typeCode === 1 ? 'terminal' : (typeCode === 2 ? 'stall' : 'regular');
+
+                const xResult = decodeFloat32(bytes, offset);
+                const x = xResult.value;
+                offset = xResult.offset;
+
+                const yResult = decodeFloat32(bytes, offset);
+                const y = yResult.value;
+                offset = yResult.offset;
+
+                const wResult = decodeFloat32(bytes, offset);
+                const w = wResult.value;
+                offset = wResult.offset;
+
+                const hResult = decodeFloat32(bytes, offset);
+                const h = hResult.value;
+                offset = hResult.offset;
+
+                states.push({
+                    id: id,
+                    label: label,
+                    type: type,
+                    x: x,
+                    y: y,
+                    width: w,
+                    height: h
+                });
+            }
+
+            const transitionCountResult = varintDecode(bytes, offset);
+            const transitionCount = transitionCountResult.value;
+            offset = transitionCountResult.offset;
+
+            const transitions = [];
+
+            for (let i = 0; i < transitionCount; i++) {
+                const idLenResult = varintDecode(bytes, offset);
+                const idLen = idLenResult.value;
+                offset = idLenResult.offset;
+                const id = decoder.decode(bytes.slice(offset, offset + idLen));
+                offset += idLen;
+
+                const fromLenResult = varintDecode(bytes, offset);
+                const fromLen = fromLenResult.value;
+                offset = fromLenResult.offset;
+                const from = decoder.decode(bytes.slice(offset, offset + fromLen));
+                offset += fromLen;
+
+                const toLenResult = varintDecode(bytes, offset);
+                const toLen = toLenResult.value;
+                offset = toLenResult.offset;
+                const to = decoder.decode(bytes.slice(offset, offset + toLen));
+                offset += toLen;
+
+                const labelResult = decodeString(bytes, offset);
+                const label = labelResult.value;
+                offset = labelResult.offset;
+
+                const noteResult = decodeString(bytes, offset);
+                const note = noteResult.value;
+                offset = noteResult.offset;
+
+                transitions.push({
+                    id: id,
+                    from: from,
+                    to: to,
+                    label: label,
+                    note: note
+                });
+            }
+
+            return {
+                states: states,
+                transitions: transitions
+            };
         }
 
         // ============================================================
@@ -1182,9 +1973,7 @@
                     try {
                         JSON.parse(editor.value);
                         saveCurrentDiagram();
-                    } catch (e) {
-                        // Invalid JSON, don't save
-                    }
+                    } catch (e) { }
                 }, 1000);
             });
         }
@@ -1210,11 +1999,9 @@
                     errorMsg.className = 'error-message';
                 }
 
-                // Save to current diagram
                 const diagram = getCurrentDiagram();
                 if (diagram) {
                     diagram.json = jsonData;
-                    // Keep positions if they exist
                     if (renderer && renderer.statePositions) {
                         const positions = {};
                         for (const [id, pos] of Object.entries(renderer.statePositions)) {
@@ -1280,7 +2067,6 @@
                 return;
             }
 
-            // Save current state
             saveCurrentDiagram();
 
             const dropdown = document.getElementById('exportDropdown');
@@ -1288,7 +2074,6 @@
                 dropdown.classList.remove('show');
             }
 
-            const zoomPercent = zoomLevel * 100;
             const exportCanvas = document.createElement('canvas');
 
             if (renderer) {
@@ -1381,9 +2166,16 @@
                 e.preventDefault();
                 centerDiagram();
             }
+            if (e.ctrlKey && e.key === 'l') {
+                e.preventDefault();
+                if (isForceRunning) {
+                    stopForceLayout();
+                } else {
+                    startForceLayout();
+                }
+            }
         });
 
-        // Create diagram on Enter key in the name input
         document.addEventListener('DOMContentLoaded', () => {
             const nameInput = document.getElementById('newDiagramName');
             if (nameInput) {
@@ -1409,6 +2201,9 @@
         window.exportDiagramFile = exportDiagramFile;
         window.importDiagramFile = importDiagramFile;
         window.centerDiagram = centerDiagram;
+        window.shareDiagram = shareDiagram;
+        window.startForceLayout = startForceLayout;
+        window.stopForceLayout = stopForceLayout;
 
         // ============================================================
         // RESIZE HANDLER
@@ -1640,7 +2435,6 @@
                 for (const [id, pos] of Object.entries(this.statePositions)) {
                     positions[id] = { x: pos.x, y: pos.y };
                 }
-                // Save to the current diagram
                 if (currentDiagramId) {
                     const diagram = getCurrentDiagram();
                     if (diagram) {
@@ -1718,7 +2512,6 @@
                     this._layout = {};
                     this._transitions = [];
                 }
-                // Center the diagram when loading new data
                 this.zoom = 1;
                 this.offsetX = 0;
                 this.offsetY = 0;
@@ -1797,8 +2590,10 @@
                 const numLevels = levelKeys.length;
                 const maxStatesInLevel = Math.max(...Object.values(levelGroups).map(arr => arr.length));
 
-                const minSpacingX = 350, maxSpacingX = 500;
-                const minSpacingY = 250, maxSpacingY = 400;
+                const minSpacingX = 350,
+                    maxSpacingX = 500;
+                const minSpacingY = 250,
+                    maxSpacingY = 400;
                 const availableWidth = canvasW - padding * 2;
                 const availableHeight = canvasH - padding * 2;
 
@@ -1879,8 +2674,10 @@
                         }
 
                         this.statePositions[id] = {
-                            x: posX, y: posY,
-                            width: defaultWidth, height: defaultHeight,
+                            x: posX,
+                            y: posY,
+                            width: defaultWidth,
+                            height: defaultHeight,
                             centerX: posX + defaultWidth / 2,
                             centerY: posY + defaultHeight / 2
                         };
@@ -1994,7 +2791,10 @@
                     const fontWeight = defaults.fontWeight || 'bold';
                     const fontFamily = defaults.fontFamily || 'Arial';
 
-                    const x = pos.x, y = pos.y, w = pos.width, h = pos.height;
+                    const x = pos.x,
+                        y = pos.y,
+                        w = pos.width,
+                        h = pos.height;
 
                     ctx.save();
                     if (isDimmed) ctx.globalAlpha = 0.25;
@@ -2042,7 +2842,8 @@
                     const startY = y + h / 2 - totalHeight / 2 + lineHeight / 2;
 
                     lines.forEach((line, index) => {
-                        ctx.fillText(line, x + w / 2, startY + index * lineHeight);
+                        const lineY = startY + index * lineHeight;
+                        ctx.fillText(line, x + w / 2, lineY);
                     });
 
                     if (type === 'terminal') {
@@ -2128,7 +2929,12 @@
                     const cpY = (fromY + toY) / 2 + ny * curveAmount;
 
                     this.transitionPaths[t.id] = {
-                        fromX, fromY, toX, toY, cpX, cpY,
+                        fromX,
+                        fromY,
+                        toX,
+                        toY,
+                        cpX,
+                        cpY,
                         note: t.note || null,
                         notePos: null
                     };
@@ -2264,7 +3070,10 @@
 
                 const ctx = exportCanvas.getContext('2d');
 
-                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                let minX = Infinity,
+                    minY = Infinity,
+                    maxX = -Infinity,
+                    maxY = -Infinity;
 
                 for (const [id, pos] of Object.entries(this.statePositions)) {
                     minX = Math.min(minX, pos.x);
@@ -2323,7 +3132,6 @@
                 ctx.imageSmoothingEnabled = true;
                 ctx.imageSmoothingQuality = 'high';
 
-                // Draw without hover effects
                 const isHovering = false;
                 const emptySet = new Set();
                 this.drawTransitions(ctx, null, emptySet, isHovering);
