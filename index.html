@@ -336,6 +336,49 @@
             cursor: grabbing;
         }
 
+        /* Center button on canvas */
+        .canvas-overlay {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            display: flex;
+            gap: 10px;
+            pointer-events: none;
+        }
+
+        .canvas-overlay button {
+            pointer-events: all;
+            background: rgba(30, 30, 30, 0.85);
+            color: #cccccc;
+            border: 1px solid #3c3c3c;
+            padding: 8px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+            backdrop-filter: blur(4px);
+            font-family: 'Segoe UI', Arial, sans-serif;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .canvas-overlay button:hover {
+            background: rgba(50, 50, 50, 0.9);
+            border-color: #0e639c;
+            color: white;
+        }
+
+        .canvas-overlay button:active {
+            transform: scale(0.95);
+        }
+
+        .canvas-overlay button .icon {
+            font-size: 16px;
+        }
+
         .note-tooltip {
             position: fixed;
             background: #2d2d2d;
@@ -541,6 +584,15 @@
             .diagram-list {
                 max-height: 120px;
             }
+
+            .canvas-overlay {
+                bottom: 15px;
+            }
+
+            .canvas-overlay button {
+                padding: 6px 14px;
+                font-size: 12px;
+            }
         }
 
         #jsonEditor::-webkit-scrollbar {
@@ -613,6 +665,11 @@
                 <span>🎨 Diagram Preview</span>
                 <span style="font-size:12px; color:#888;">Hover state to highlight • Click to drag • Click empty space
                     to pan • Scroll to zoom</span>
+            </div>
+            <div class="canvas-overlay">
+                <button onclick="centerDiagram()">
+                    <span class="icon">🎯</span> Center Diagram
+                </button>
             </div>
             <canvas id="diagramCanvas"></canvas>
         </div>
@@ -759,6 +816,25 @@
         function getCurrentDiagram() {
             if (!currentDiagramId) return null;
             return getDiagram(currentDiagramId);
+        }
+
+        // ============================================================
+        // CENTER DIAGRAM FUNCTION
+        // ============================================================
+        function centerDiagram() {
+            if (!renderer) {
+                showError('Renderer not initialized');
+                return;
+            }
+
+            // Reset zoom and offset
+            renderer.zoom = 1;
+            renderer.offsetX = 0;
+            renderer.offsetY = 0;
+
+            // Re-render
+            renderer.render();
+            showSuccess('Diagram centered');
         }
 
         // ============================================================
@@ -1161,7 +1237,6 @@
         // ============================================================
         function showError(message) {
             if (!errorMsg) {
-                // Fallback to alert if errorMsg not available
                 alert('❌ ' + message);
                 return;
             }
@@ -1174,7 +1249,6 @@
 
         function showSuccess(message) {
             if (!errorMsg) {
-                // Fallback to alert if errorMsg not available
                 alert('✅ ' + message);
                 return;
             }
@@ -1298,11 +1372,14 @@
                 toggleExportDropdown();
             }
             if (e.ctrlKey && e.key === 'Enter') {
-                // Check if editor is focused
                 if (document.activeElement === editor) {
                     e.preventDefault();
                     renderDiagram();
                 }
+            }
+            if (e.ctrlKey && e.key === '0') {
+                e.preventDefault();
+                centerDiagram();
             }
         });
 
@@ -1331,6 +1408,7 @@
         window.renameDiagram = renameDiagram;
         window.exportDiagramFile = exportDiagramFile;
         window.importDiagramFile = importDiagramFile;
+        window.centerDiagram = centerDiagram;
 
         // ============================================================
         // RESIZE HANDLER
@@ -1345,7 +1423,6 @@
         // ============================================================
         // START THE APPLICATION
         // ============================================================
-        // Wait for DOM to be ready
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', init);
         } else {
@@ -1641,6 +1718,10 @@
                     this._layout = {};
                     this._transitions = [];
                 }
+                // Center the diagram when loading new data
+                this.zoom = 1;
+                this.offsetX = 0;
+                this.offsetY = 0;
                 this.render();
             }
 
@@ -2251,20 +2332,6 @@
                 ctx.restore();
             }
         }
-
-        // ============================================================
-        // KEYBOARD SHORTCUT FOR RENDER
-        // ============================================================
-        // Add Ctrl+Enter for render
-        document.addEventListener('keydown', (e) => {
-            if (e.ctrlKey && e.key === 'Enter') {
-                // Check if editor is focused
-                if (document.activeElement === editor) {
-                    e.preventDefault();
-                    renderDiagram();
-                }
-            }
-        });
     </script>
 </body>
 
