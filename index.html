@@ -1,0 +1,1872 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON to Diagram Renderer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            background: #1e1e1e;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        .left-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: #252526;
+            border-right: 2px solid #3c3c3c;
+            min-width: 300px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .left-panel.collapsed {
+            min-width: 0;
+            flex: 0 0 40px;
+            border-right: 2px solid #3c3c3c;
+        }
+
+        .left-panel.collapsed .panel-header span,
+        .left-panel.collapsed #jsonEditor,
+        .left-panel.collapsed .panel-header .render-btn,
+        .left-panel.collapsed .panel-header .export-btn {
+            display: none;
+        }
+
+        .left-panel.collapsed .panel-header {
+            justify-content: center;
+            padding: 12px 8px;
+        }
+
+        .left-panel.collapsed .panel-header .toggle-btn {
+            display: block;
+        }
+
+        .panel-header {
+            padding: 12px 20px;
+            background: #2d2d2d;
+            color: #cccccc;
+            font-size: 14px;
+            font-weight: 600;
+            border-bottom: 1px solid #3c3c3c;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .panel-header .left-section {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .panel-header .right-section {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .panel-header button {
+            background: #0e639c;
+            color: white;
+            border: none;
+            padding: 6px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.2s;
+            white-space: nowrap;
+        }
+
+        .panel-header button:hover {
+            background: #1177bb;
+        }
+
+        .panel-header button:active {
+            transform: scale(0.98);
+        }
+
+        .panel-header .toggle-btn {
+            background: transparent;
+            color: #cccccc;
+            font-size: 18px;
+            padding: 4px 8px;
+            margin-right: 0;
+            display: block;
+            min-width: 30px;
+        }
+
+        .panel-header .toggle-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .panel-header .export-btn {
+            background: #2d7d46;
+        }
+
+        .panel-header .export-btn:hover {
+            background: #3a9d5a;
+        }
+
+        .panel-header .render-btn {
+            background: #0e639c;
+        }
+
+        .panel-header .render-btn:hover {
+            background: #1177bb;
+        }
+
+        #jsonEditor {
+            flex: 1;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            border: none;
+            padding: 20px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            resize: none;
+            outline: none;
+            tab-size: 2;
+            min-height: 200px;
+        }
+
+        #jsonEditor::selection {
+            background: #264f78;
+        }
+
+        .right-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: #1e1e1e;
+            min-width: 300px;
+            position: relative;
+        }
+
+        .right-panel .panel-header .toggle-panel-btn {
+            background: transparent;
+            color: #cccccc;
+            font-size: 18px;
+            padding: 4px 8px;
+            margin-right: 0;
+            display: none;
+        }
+
+        .right-panel .panel-header .toggle-panel-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        #diagramCanvas {
+            flex: 1;
+            width: 100%;
+            height: 100%;
+            display: block;
+            cursor: grab;
+        }
+
+        #diagramCanvas:active {
+            cursor: grabbing;
+        }
+
+        .note-tooltip {
+            position: fixed;
+            background: #2d2d2d;
+            color: #e0e0e0;
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            border: 1px solid #555;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+            pointer-events: none;
+            z-index: 1000;
+            display: none;
+            max-width: 300px;
+            word-wrap: break-word;
+            line-height: 1.4;
+        }
+
+        .note-tooltip .note-label {
+            color: #888;
+            font-size: 11px;
+            margin-bottom: 4px;
+        }
+
+        .note-tooltip .note-text {
+            color: #fff;
+        }
+
+        .error-message {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #f44336;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            display: none;
+            z-index: 1000;
+            max-width: 80%;
+        }
+
+        .error-message.show {
+            display: block;
+            animation: slideUp 0.3s ease-out;
+        }
+
+        .error-message.success {
+            background: #2d7d46;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateX(-50%) translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
+        }
+
+        .status-bar {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #888;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            pointer-events: none;
+            z-index: 999;
+            border: 1px solid #333;
+        }
+
+        .export-dropdown {
+            position: relative;
+            display: inline-block;
+        }
+
+        .export-dropdown-content {
+            display: none;
+            position: absolute;
+            right: 0;
+            top: 100%;
+            background: #2d2d2d;
+            min-width: 220px;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            border-radius: 4px;
+            border: 1px solid #3c3c3c;
+            margin-top: 4px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .export-dropdown-content.show {
+            display: block;
+        }
+
+        .export-dropdown-content button {
+            color: #cccccc;
+            padding: 8px 16px;
+            text-decoration: none;
+            display: block;
+            background: transparent;
+            border: none;
+            width: 100%;
+            text-align: left;
+            font-size: 13px;
+            cursor: pointer;
+            border-radius: 0;
+            transition: background 0.2s;
+        }
+
+        .export-dropdown-content button:hover {
+            background: #3c3c3c;
+            color: white;
+        }
+
+        .export-dropdown-content button:first-child {
+            border-radius: 4px 4px 0 0;
+        }
+
+        .export-dropdown-content button:last-child {
+            border-radius: 0 0 4px 4px;
+        }
+
+        .export-dropdown-content .sub-label {
+            font-size: 11px;
+            color: #666;
+            padding: 8px 16px 4px;
+            display: block;
+            border-bottom: 1px solid #3c3c3c;
+            margin-bottom: 4px;
+            font-weight: bold;
+        }
+
+        .export-dropdown-content .zoom-info {
+            font-size: 10px;
+            color: #555;
+            padding: 2px 16px 8px;
+            display: block;
+            border-bottom: 1px solid #3c3c3c;
+            margin-bottom: 4px;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+            }
+
+            .left-panel {
+                border-right: none;
+                border-bottom: 2px solid #3c3c3c;
+                max-height: 50vh;
+            }
+
+            .left-panel.collapsed {
+                flex: 0 0 40px;
+                max-height: 40px;
+            }
+
+            .right-panel {
+                max-height: 50vh;
+            }
+
+            .right-panel .panel-header .toggle-panel-btn {
+                display: block;
+            }
+
+            .left-panel.collapsed .panel-header .toggle-btn {
+                display: none;
+            }
+
+            .status-bar {
+                display: none;
+            }
+
+            .panel-header {
+                padding: 8px 12px;
+            }
+
+            .panel-header button {
+                padding: 4px 10px;
+                font-size: 12px;
+            }
+
+            .export-dropdown-content {
+                min-width: 180px;
+                max-height: 300px;
+            }
+        }
+
+        #jsonEditor::-webkit-scrollbar {
+            width: 12px;
+        }
+
+        #jsonEditor::-webkit-scrollbar-track {
+            background: #1e1e1e;
+        }
+
+        #jsonEditor::-webkit-scrollbar-thumb {
+            background: #424242;
+            border-radius: 6px;
+        }
+
+        #jsonEditor::-webkit-scrollbar-thumb:hover {
+            background: #4e4e4e;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="left-panel" id="leftPanel">
+            <div class="panel-header">
+                <div class="left-section">
+                    <button class="toggle-btn" onclick="togglePanel()">◀</button>
+                    <span>📝 JSON Diagram</span>
+                </div>
+                <div class="right-section">
+                    <button class="render-btn" onclick="renderDiagram()">🔄 Render</button>
+                    <div class="export-dropdown">
+                        <button class="export-btn" onclick="toggleExportDropdown()">📥 Export</button>
+                        <div class="export-dropdown-content" id="exportDropdown">
+                            <span class="sub-label">🖼️ Export with Zoom Quality</span>
+                            <span class="zoom-info">Higher zoom = higher quality</span>
+                            <button onclick="exportDiagram('png', 5)">PNG (500% zoom) - Ultra High</button>
+                            <button onclick="exportDiagram('jpg', 5)">JPG (500% zoom) - Ultra High</button>
+                            <button onclick="exportDiagram('png', 4)">PNG (400% zoom) - Very High</button>
+                            <button onclick="exportDiagram('jpg', 4)">JPG (400% zoom) - Very High</button>
+                            <button onclick="exportDiagram('png', 3)">PNG (300% zoom) - High</button>
+                            <button onclick="exportDiagram('jpg', 3)">JPG (300% zoom) - High</button>
+                            <button onclick="exportDiagram('png', 2)">PNG (200% zoom) - Medium</button>
+                            <button onclick="exportDiagram('jpg', 2)">JPG (200% zoom) - Medium</button>
+                            <button onclick="exportDiagram('png', 1)">PNG (100% zoom) - Standard</button>
+                            <button onclick="exportDiagram('jpg', 1)">JPG (100% zoom) - Standard</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <textarea id="jsonEditor" spellcheck="false"></textarea>
+        </div>
+
+        <div class="right-panel">
+            <div class="panel-header">
+                <button class="toggle-panel-btn" onclick="togglePanel()">▶</button>
+                <span>🎨 Diagram Preview</span>
+                <span style="font-size:12px; color:#888;">Hover state to highlight • Click to drag • Click empty space
+                    to pan • Scroll to zoom</span>
+            </div>
+            <canvas id="diagramCanvas"></canvas>
+        </div>
+    </div>
+
+    <div id="noteTooltip" class="note-tooltip">
+        <div class="note-label">📌 Note</div>
+        <div class="note-text"></div>
+    </div>
+
+    <div id="errorMessage" class="error-message"></div>
+    <div class="status-bar" id="statusBar">🖱 Hover state to highlight • Click to drag • Click empty space to pan</div>
+
+    <script>
+        // ============================================================
+        // DEFAULT JSON
+        // ============================================================
+        const defaultJSON = {
+            "title": "Workflow Example",
+            "description": "A sample state diagram",
+            "version": "1.0",
+            "states": [
+                { "id": "start", "label": "Start", "type": "regular" },
+                { "id": "process", "label": "Process Data", "type": "regular" },
+                { "id": "validate", "label": "Validation", "type": "regular" },
+                { "id": "error", "label": "Error Handler", "type": "stall" },
+                { "id": "retry", "label": "Retry", "type": "stall" },
+                { "id": "complete", "label": "Complete", "type": "terminal" }
+            ],
+            "transitions": [
+                { "id": "t1", "from": "start", "to": "process", "label": "Init", "note": "Start processing the data" },
+                { "id": "t2", "from": "process", "to": "validate", "label": "Ready", "note": "Data is ready for validation" },
+                { "id": "t3", "from": "validate", "to": "complete", "label": "Valid", "note": "All validation checks passed successfully" },
+                { "id": "t4", "from": "validate", "to": "error", "label": "Invalid", "note": "Validation failed due to data errors" },
+                { "id": "t5", "from": "error", "to": "retry", "label": "Recover", "note": "Attempting to recover from error" },
+                { "id": "t6", "from": "retry", "to": "validate", "label": "Retry", "note": "Retrying the validation process" },
+                { "id": "t7", "from": "retry", "to": "complete", "label": "Give up", "note": "Max retries exceeded" }
+            ],
+            "defaults": {
+                "state": {
+                    "type": "regular",
+                    "color": "#2d2d2d",
+                    "width": 160,
+                    "height": 70,
+                    "borderRadius": 8,
+                    "borderColor": "#666666",
+                    "borderWidth": 2,
+                    "fontSize": 14,
+                    "fontFamily": "Arial",
+                    "fontWeight": "bold"
+                },
+                "terminal": {
+                    "color": "#c62828",
+                    "borderColor": "#ef5350"
+                },
+                "stall": {
+                    "color": "#1565c0",
+                    "borderColor": "#42a5f5"
+                },
+                "transition": {
+                    "arrowStyle": "solid",
+                    "color": "#888888",
+                    "lineWidth": 2,
+                    "fontSize": 11,
+                    "fontFamily": "Arial",
+                    "noteFontSize": 10,
+                    "noteColor": "#999999"
+                }
+            },
+            "layout": {
+                "algorithm": "hierarchical",
+                "direction": "horizontal",
+                "spacingX": 350,
+                "spacingY": 250,
+                "padding": 80,
+                "arrowCurve": 60,
+                "noteOffset": 35
+            },
+            "style": {
+                "background": "#1e1e1e",
+                "fontFamily": "Arial, sans-serif"
+            }
+        };
+
+        // ============================================================
+        // DIAGRAM RENDERER
+        // ============================================================
+        class DiagramRenderer {
+            constructor(canvas, tooltip, statusBar) {
+                this.canvas = canvas;
+                this.ctx = canvas.getContext('2d');
+                this.tooltip = tooltip;
+                this.statusBar = statusBar;
+                this.data = null;
+                this.statePositions = {};
+                this.transitionPaths = {};
+                this.zoom = 1;
+                this.offsetX = 0;
+                this.offsetY = 0;
+
+                // Physics properties
+                this.physicsStates = {};
+                this.draggingState = null;
+                this.dragOffsetX = 0;
+                this.dragOffsetY = 0;
+                this.animationFrame = null;
+                this.isDragging = false;
+                this._saveTimeout = null;
+
+                // Pan properties
+                this.isPanning = false;
+                this.panStartX = 0;
+                this.panStartY = 0;
+                this.panOffsetX = 0;
+                this.panOffsetY = 0;
+
+                // Hover properties
+                this.hoveredState = null;
+
+                this.setupCanvas();
+                this.setupInteraction();
+                this.updateStatus('Hover state to highlight • Click to drag • Click empty space to pan');
+            }
+
+            setupCanvas() {
+                const rect = this.canvas.parentElement.getBoundingClientRect();
+                this.canvas.width = rect.width;
+                this.canvas.height = rect.height;
+            }
+
+            updateStatus(message) {
+                if (this.statusBar) {
+                    this.statusBar.textContent = '🖱 ' + message;
+                }
+            }
+
+            setupInteraction() {
+                // Mouse wheel zoom
+                this.canvas.addEventListener('wheel', (e) => {
+                    e.preventDefault();
+                    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                    this.zoom = Math.max(0.3, Math.min(3, this.zoom + delta));
+                    this.render();
+                    this.updateStatus(`Zoom: ${Math.round(this.zoom * 100)}%`);
+                    setTimeout(() => {
+                        this.updateStatus('Hover state to highlight • Click to drag • Click empty space to pan');
+                    }, 1000);
+                }, { passive: false });
+
+                // Mouse down
+                this.canvas.addEventListener('mousedown', (e) => {
+                    if (e.button !== 0) return;
+
+                    const rect = this.canvas.getBoundingClientRect();
+                    const mouseX = (e.clientX - rect.left - this.offsetX) / this.zoom;
+                    const mouseY = (e.clientY - rect.top - this.offsetY) / this.zoom;
+
+                    // Check if clicking on a state
+                    let foundState = null;
+                    for (const [id, pos] of Object.entries(this.statePositions)) {
+                        if (mouseX >= pos.x && mouseX <= pos.x + pos.width &&
+                            mouseY >= pos.y && mouseY <= pos.y + pos.height) {
+                            foundState = id;
+                            break;
+                        }
+                    }
+
+                    if (foundState) {
+                        // Drag state
+                        this.draggingState = foundState;
+                        const pos = this.statePositions[foundState];
+                        this.dragOffsetX = mouseX - pos.x;
+                        this.dragOffsetY = mouseY - pos.y;
+                        this.isDragging = true;
+                        this.canvas.style.cursor = 'grabbing';
+                        this.updateStatus(`Dragging state: ${this._stateMap[foundState].label || foundState}`);
+                    } else {
+                        // Pan
+                        this.isPanning = true;
+                        this.panStartX = e.clientX;
+                        this.panStartY = e.clientY;
+                        this.panOffsetX = this.offsetX;
+                        this.panOffsetY = this.offsetY;
+                        this.canvas.style.cursor = 'grabbing';
+                        this.updateStatus('Panning diagram');
+                    }
+                });
+
+                // Mouse move
+                this.canvas.addEventListener('mousemove', (e) => {
+                    // Panning
+                    if (this.isPanning) {
+                        const dx = e.clientX - this.panStartX;
+                        const dy = e.clientY - this.panStartY;
+                        this.offsetX = this.panOffsetX + dx;
+                        this.offsetY = this.panOffsetY + dy;
+                        this.render();
+                        return;
+                    }
+
+                    // Dragging
+                    if (this.isDragging && this.draggingState) {
+                        const rect = this.canvas.getBoundingClientRect();
+                        const mouseX = (e.clientX - rect.left - this.offsetX) / this.zoom;
+                        const mouseY = (e.clientY - rect.top - this.offsetY) / this.zoom;
+
+                        const pos = this.statePositions[this.draggingState];
+                        const targetX = mouseX - this.dragOffsetX;
+                        const targetY = mouseY - this.dragOffsetY;
+
+                        pos.x = targetX;
+                        pos.y = targetY;
+                        pos.centerX = pos.x + pos.width / 2;
+                        pos.centerY = pos.y + pos.height / 2;
+
+                        this.render();
+                        this.savePositionsDebounced();
+                        return;
+                    }
+
+                    // Hover (only when not dragging or panning)
+                    const rect = this.canvas.getBoundingClientRect();
+                    const mouseX = (e.clientX - rect.left - this.offsetX) / this.zoom;
+                    const mouseY = (e.clientY - rect.top - this.offsetY) / this.zoom;
+
+                    let hoveredState = null;
+                    for (const [id, pos] of Object.entries(this.statePositions)) {
+                        if (mouseX >= pos.x && mouseX <= pos.x + pos.width &&
+                            mouseY >= pos.y && mouseY <= pos.y + pos.height) {
+                            hoveredState = id;
+                            break;
+                        }
+                    }
+
+                    if (hoveredState !== this.hoveredState) {
+                        this.hoveredState = hoveredState;
+                        this.render();
+                        if (hoveredState) {
+                            this.updateStatus(`Hovering: ${this._stateMap[hoveredState].label || hoveredState}`);
+                        } else {
+                            this.updateStatus('Hover state to highlight • Click to drag • Click empty space to pan');
+                        }
+                    }
+
+                    // Note hover
+                    this.handleNoteHover(e);
+                });
+
+                // Mouse up
+                this.canvas.addEventListener('mouseup', (e) => {
+                    if (this.isPanning) {
+                        this.isPanning = false;
+                        this.canvas.style.cursor = 'grab';
+                        this.updateStatus('Hover state to highlight • Click to drag • Click empty space to pan');
+                        return;
+                    }
+
+                    if (this.isDragging && this.draggingState) {
+                        this.isDragging = false;
+                        this.canvas.style.cursor = 'grab';
+                        this.updateStatus('Hover state to highlight • Click to drag • Click empty space to pan');
+                        this.savePositions();
+                        this.draggingState = null;
+                    }
+                });
+
+                // Mouse leave
+                this.canvas.addEventListener('mouseleave', () => {
+                    this.hideTooltip();
+                    if (this.hoveredState) {
+                        this.hoveredState = null;
+                        this.render();
+                        this.updateStatus('Hover state to highlight • Click to drag • Click empty space to pan');
+                    }
+                    if (this.isPanning) {
+                        this.isPanning = false;
+                        this.canvas.style.cursor = 'grab';
+                    }
+                    if (this.isDragging) {
+                        this.isDragging = false;
+                        this.canvas.style.cursor = 'grab';
+                        this.draggingState = null;
+                    }
+                });
+
+                // Prevent context menu
+                this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+                // Resize
+                const resizeObserver = new ResizeObserver(() => {
+                    this.setupCanvas();
+                    this.render();
+                });
+                resizeObserver.observe(this.canvas.parentElement);
+            }
+
+            savePositionsDebounced() {
+                clearTimeout(this._saveTimeout);
+                this._saveTimeout = setTimeout(() => this.savePositions(), 500);
+            }
+
+            savePositions() {
+                if (!this.statePositions || Object.keys(this.statePositions).length === 0) return;
+                const positions = {};
+                for (const [id, pos] of Object.entries(this.statePositions)) {
+                    positions[id] = { x: pos.x, y: pos.y };
+                }
+                saveStatePositions(positions);
+            }
+
+            handleNoteHover(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                const mouseX = (e.clientX - rect.left - this.offsetX) / this.zoom;
+                const mouseY = (e.clientY - rect.top - this.offsetY) / this.zoom;
+
+                let foundNote = null;
+                for (const [id, path] of Object.entries(this.transitionPaths)) {
+                    if (path.notePos) {
+                        const dx = mouseX - path.notePos.x;
+                        const dy = mouseY - path.notePos.y;
+                        if (Math.sqrt(dx * dx + dy * dy) < 25) {
+                            foundNote = path.note;
+                            break;
+                        }
+                    }
+                }
+
+                if (foundNote) {
+                    this.showTooltip(e.clientX, e.clientY, foundNote);
+                    this.canvas.style.cursor = 'pointer';
+                } else {
+                    this.hideTooltip();
+                    if (!this.isPanning && !this.isDragging && !this.hoveredState) {
+                        this.canvas.style.cursor = 'grab';
+                    }
+                }
+            }
+
+            showTooltip(x, y, note) {
+                const tooltip = this.tooltip;
+                const textEl = tooltip.querySelector('.note-text');
+                textEl.textContent = note;
+                tooltip.style.display = 'block';
+                tooltip.style.left = (x + 15) + 'px';
+                tooltip.style.top = (y - 10) + 'px';
+
+                const rect = tooltip.getBoundingClientRect();
+                if (rect.right > window.innerWidth) {
+                    tooltip.style.left = (x - rect.width - 15) + 'px';
+                }
+                if (rect.bottom > window.innerHeight) {
+                    tooltip.style.top = (y - rect.height - 10) + 'px';
+                }
+            }
+
+            hideTooltip() {
+                this.tooltip.style.display = 'none';
+            }
+
+            loadData(data, savedPositions = null) {
+                this.data = data;
+                this.physicsStates = {};
+                this.hoveredState = null;
+                if (this.animationFrame) {
+                    cancelAnimationFrame(this.animationFrame);
+                    this.animationFrame = null;
+                }
+                this.calculateLayout(savedPositions);
+                this.render();
+            }
+
+            calculateLayout(savedPositions = null) {
+                if (!this.data) return;
+
+                const states = this.data.states;
+                const layout = this.data.layout || {};
+                const padding = layout.padding || 80;
+
+                const canvasW = this.canvas.width;
+                const canvasH = this.canvas.height;
+
+                const defaultWidth = this.data.defaults?.state?.width || 160;
+                const defaultHeight = this.data.defaults?.state?.height || 70;
+
+                // Build graph
+                const adj = {};
+                const inDegree = {};
+                const stateMap = {};
+                states.forEach(s => {
+                    adj[s.id] = [];
+                    inDegree[s.id] = 0;
+                    stateMap[s.id] = s;
+                });
+
+                const transitions = this.data.transitions || [];
+                transitions.forEach(t => {
+                    if (adj[t.from]) {
+                        adj[t.from].push(t.to);
+                        inDegree[t.to] = (inDegree[t.to] || 0) + 1;
+                    }
+                });
+
+                // Find roots
+                const roots = states.filter(s => inDegree[s.id] === 0);
+                const startNodes = roots.length > 0 ? roots.map(r => r.id) : [states[0].id];
+
+                // BFS to assign levels
+                const levels = {};
+                const visited = new Set();
+                const queue = startNodes.map(id => ({ id, level: 0 }));
+                startNodes.forEach(id => {
+                    visited.add(id);
+                    levels[id] = 0;
+                });
+
+                let maxLevel = 0;
+                while (queue.length > 0) {
+                    const { id, level } = queue.shift();
+                    maxLevel = Math.max(maxLevel, level);
+                    (adj[id] || []).forEach(nextId => {
+                        if (!visited.has(nextId)) {
+                            visited.add(nextId);
+                            const parentLevels = [];
+                            for (const [parentId, children] of Object.entries(adj)) {
+                                if (children.includes(nextId)) {
+                                    parentLevels.push(levels[parentId] || 0);
+                                }
+                            }
+                            const maxParentLevel = Math.max(...parentLevels, 0);
+                            levels[nextId] = maxParentLevel + 1;
+                            queue.push({ id: nextId, level: levels[nextId] });
+                        }
+                    });
+                }
+
+                // Group by level
+                const levelGroups = {};
+                states.forEach(s => {
+                    const lvl = levels[s.id] !== undefined ? levels[s.id] : maxLevel + 1;
+                    if (!levelGroups[lvl]) levelGroups[lvl] = [];
+                    levelGroups[lvl].push(s.id);
+                });
+
+                const levelKeys = Object.keys(levelGroups).sort((a, b) => a - b);
+                const numLevels = levelKeys.length;
+                const maxStatesInLevel = Math.max(...Object.values(levelGroups).map(arr => arr.length));
+
+                // Calculate spacing
+                const minSpacingX = 350, maxSpacingX = 500;
+                const minSpacingY = 250, maxSpacingY = 400;
+                const availableWidth = canvasW - padding * 2;
+                const availableHeight = canvasH - padding * 2;
+
+                let spacingX = Math.max(minSpacingX, Math.min(maxSpacingX,
+                    (availableWidth - defaultWidth) / (numLevels - 1 || 1) * 1.5));
+                let spacingY = Math.max(minSpacingY, Math.min(maxSpacingY,
+                    (availableHeight - defaultHeight) / (maxStatesInLevel - 1 || 1) * 1.5));
+
+                if (numLevels <= 1) spacingX = 400;
+                if (maxStatesInLevel <= 1) spacingY = 300;
+
+                const totalWidth = (numLevels - 1) * spacingX + defaultWidth;
+                const totalHeight = (maxStatesInLevel - 1) * spacingY + defaultHeight;
+
+                if (totalWidth > availableWidth * 1.2) {
+                    spacingX = (availableWidth * 0.9 - defaultWidth) / (numLevels - 1 || 1);
+                }
+                if (totalHeight > availableHeight * 1.2) {
+                    spacingY = (availableHeight * 0.9 - defaultHeight) / (maxStatesInLevel - 1 || 1);
+                }
+
+                spacingX = Math.max(spacingX, minSpacingX);
+                spacingY = Math.max(spacingY, minSpacingY);
+
+                const diagramWidth = (numLevels - 1) * spacingX + defaultWidth;
+                const diagramHeight = (maxStatesInLevel - 1) * spacingY + defaultHeight;
+
+                const startX = Math.max(padding, (canvasW - diagramWidth) / 2);
+                const startY = Math.max(padding, (canvasH - diagramHeight) / 2);
+
+                // Order states to minimize crossings (simplified)
+                const orderedLevels = {};
+                if (levelKeys.length > 0) {
+                    const firstLevel = levelKeys[0];
+                    orderedLevels[firstLevel] = [...levelGroups[firstLevel]];
+                }
+
+                for (let i = 1; i < levelKeys.length; i++) {
+                    const currentLevel = levelKeys[i];
+                    const prevLevel = levelKeys[i - 1];
+                    const currentNodes = levelGroups[currentLevel];
+                    const prevNodes = orderedLevels[prevLevel] || levelGroups[prevLevel];
+
+                    const nodeScores = currentNodes.map(nodeId => {
+                        const parents = [];
+                        for (const [parentId, children] of Object.entries(adj)) {
+                            if (children.includes(nodeId)) {
+                                const parentIndex = prevNodes.indexOf(parentId);
+                                if (parentIndex !== -1) parents.push(parentIndex);
+                            }
+                        }
+                        if (parents.length === 0) return { nodeId, score: prevNodes.length / 2 };
+                        const sortedParents = parents.sort((a, b) => a - b);
+                        const median = sortedParents[Math.floor(sortedParents.length / 2)];
+                        return { nodeId, score: median };
+                    });
+
+                    nodeScores.sort((a, b) => a.score - b.score);
+                    orderedLevels[currentLevel] = nodeScores.map(item => item.nodeId);
+                }
+
+                // Place states
+                this.statePositions = {};
+                levelKeys.forEach((levelKey, li) => {
+                    const nodeIds = orderedLevels[levelKey] || levelGroups[levelKey];
+                    const count = nodeIds.length;
+                    const x = startX + li * spacingX + (defaultWidth / 2);
+
+                    nodeIds.forEach((id, ni) => {
+                        const groupHeight = (count - 1) * spacingY + defaultHeight;
+                        const yOffset = Math.max(0, (maxStatesInLevel * spacingY - groupHeight) / 2);
+                        const y = startY + ni * spacingY + yOffset + (defaultHeight / 2);
+
+                        let posX = x - defaultWidth / 2;
+                        let posY = y - defaultHeight / 2;
+
+                        if (savedPositions && savedPositions[id]) {
+                            posX = savedPositions[id].x;
+                            posY = savedPositions[id].y;
+                        }
+
+                        this.statePositions[id] = {
+                            x: posX, y: posY,
+                            width: defaultWidth, height: defaultHeight,
+                            centerX: posX + defaultWidth / 2,
+                            centerY: posY + defaultHeight / 2
+                        };
+                    });
+                });
+
+                this._stateMap = stateMap;
+                this._defaults = this.data.defaults || {};
+                this._layout = layout;
+                this._transitions = transitions;
+            }
+
+            // Get outgoing transitions from a state
+            getOutgoingTransitions(stateId) {
+                const outgoing = [];
+                if (!this._transitions) return outgoing;
+                for (const t of this._transitions) {
+                    if (t.from === stateId) {
+                        outgoing.push(t);
+                    }
+                }
+                return outgoing;
+            }
+
+            // Get all states reachable by a single transition from the hovered state
+            getConnectedStates(stateId) {
+                const connected = new Set();
+                if (!this._transitions) return connected;
+                for (const t of this._transitions) {
+                    if (t.from === stateId) {
+                        connected.add(t.to);
+                    }
+                }
+                return connected;
+            }
+
+            render() {
+                if (!this.data || !this.statePositions) return;
+
+                const ctx = this.ctx;
+                const W = this.canvas.width;
+                const H = this.canvas.height;
+
+                ctx.clearRect(0, 0, W, H);
+
+                const bgColor = this.data.style?.background || '#1e1e1e';
+                ctx.fillStyle = bgColor;
+                ctx.fillRect(0, 0, W, H);
+
+                ctx.save();
+                ctx.translate(this.offsetX, this.offsetY);
+                ctx.scale(this.zoom, this.zoom);
+
+                const isHovering = this.hoveredState !== null;
+                const connectedStates = isHovering ? this.getConnectedStates(this.hoveredState) : new Set();
+                const outgoingTransitions = isHovering ? this.getOutgoingTransitions(this.hoveredState) : [];
+
+                this.drawTransitions(ctx, this.hoveredState, connectedStates, outgoingTransitions, isHovering);
+                this.drawStates(ctx, this.hoveredState, connectedStates, isHovering);
+
+                ctx.restore();
+            }
+
+            drawStates(ctx, hoveredState, connectedStates, isHovering) {
+                const defaults = this._defaults.state || {};
+                const terminalDefaults = this._defaults.terminal || {};
+                const stallDefaults = this._defaults.stall || {};
+
+                Object.keys(this.statePositions).forEach(id => {
+                    const pos = this.statePositions[id];
+                    const stateData = this._stateMap[id];
+                    const type = stateData.type || 'regular';
+
+                    let bgColor = defaults.color || '#2d2d2d';
+                    let borderColor = defaults.borderColor || '#666666';
+
+                    // Check if this state should be highlighted
+                    const isHighlighted = isHovering && (id === hoveredState || connectedStates.has(id));
+                    const isDimmed = isHovering && !isHighlighted;
+
+                    if (type === 'terminal') {
+                        bgColor = terminalDefaults.color || '#c62828';
+                        borderColor = terminalDefaults.borderColor || '#ef5350';
+                    } else if (type === 'stall') {
+                        bgColor = stallDefaults.color || '#1565c0';
+                        borderColor = stallDefaults.borderColor || '#42a5f5';
+                    }
+                    if (stateData.color) bgColor = stateData.color;
+
+                    let finalBg = bgColor;
+                    let finalBorder = borderColor;
+
+                    if (isHighlighted) {
+                        finalBg = this.lightenColor(bgColor, 50);
+                        finalBorder = this.lightenColor(borderColor, 70);
+                    }
+
+                    const borderRadius = defaults.borderRadius || 8;
+                    const borderWidth = defaults.borderWidth || 2;
+                    const fontSize = defaults.fontSize || 14;
+                    const fontWeight = defaults.fontWeight || 'bold';
+                    const fontFamily = defaults.fontFamily || 'Arial';
+
+                    const x = pos.x, y = pos.y, w = pos.width, h = pos.height;
+
+                    ctx.save();
+                    if (isDimmed) ctx.globalAlpha = 0.25;
+
+                    if (isHighlighted) {
+                        ctx.shadowColor = 'rgba(255,255,255,0.4)';
+                        ctx.shadowBlur = 25;
+                    } else {
+                        ctx.shadowColor = 'rgba(0,0,0,0.3)';
+                        ctx.shadowBlur = 10;
+                    }
+                    ctx.shadowOffsetX = 2;
+                    ctx.shadowOffsetY = 2;
+
+                    ctx.beginPath();
+                    ctx.moveTo(x + borderRadius, y);
+                    ctx.lineTo(x + w - borderRadius, y);
+                    ctx.quadraticCurveTo(x + w, y, x + w, y + borderRadius);
+                    ctx.lineTo(x + w, y + h - borderRadius);
+                    ctx.quadraticCurveTo(x + w, y + h, x + w - borderRadius, y + h);
+                    ctx.lineTo(x + borderRadius, y + h);
+                    ctx.quadraticCurveTo(x, y + h, x, y + h - borderRadius);
+                    ctx.lineTo(x, y + borderRadius);
+                    ctx.quadraticCurveTo(x, y, x + borderRadius, y);
+                    ctx.closePath();
+
+                    ctx.fillStyle = finalBg;
+                    ctx.fill();
+                    ctx.shadowColor = 'transparent';
+                    ctx.strokeStyle = finalBorder;
+                    ctx.lineWidth = isHighlighted ? borderWidth + 2 : borderWidth;
+                    ctx.stroke();
+
+                    const textColor = this.getContrastColor(finalBg);
+                    ctx.fillStyle = textColor;
+                    ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+
+                    const label = stateData.label || id;
+                    const maxWidth = w - 20;
+                    const lines = this.wrapText(ctx, label, maxWidth);
+                    const lineHeight = fontSize * 1.2;
+                    const totalHeight = lines.length * lineHeight;
+                    const startY = y + h / 2 - totalHeight / 2 + lineHeight / 2;
+
+                    lines.forEach((line, index) => {
+                        ctx.fillText(line, x + w / 2, startY + index * lineHeight);
+                    });
+
+                    if (type === 'terminal') {
+                        ctx.fillStyle = textColor;
+                        ctx.font = '12px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'bottom';
+                        ctx.fillText('⏹', x + w / 2, y - 4);
+                    } else if (type === 'stall') {
+                        ctx.fillStyle = textColor;
+                        ctx.font = '12px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'bottom';
+                        ctx.fillText('⏸', x + w / 2, y - 4);
+                    }
+
+                    ctx.restore();
+                });
+            }
+
+            lightenColor(hex, amount) {
+                const color = hex.replace('#', '');
+                let r = Math.min(255, parseInt(color.substring(0, 2), 16) + amount);
+                let g = Math.min(255, parseInt(color.substring(2, 4), 16) + amount);
+                let b = Math.min(255, parseInt(color.substring(4, 6), 16) + amount);
+                return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+            }
+
+            wrapText(ctx, text, maxWidth) {
+                const words = text.split(' ');
+                const lines = [];
+                let currentLine = '';
+                for (let i = 0; i < words.length; i++) {
+                    const testLine = currentLine + (currentLine ? ' ' : '') + words[i];
+                    if (ctx.measureText(testLine).width > maxWidth && currentLine) {
+                        lines.push(currentLine);
+                        currentLine = words[i];
+                    } else {
+                        currentLine = testLine;
+                    }
+                }
+                if (currentLine) lines.push(currentLine);
+                return lines.length > 0 ? lines : [text];
+            }
+
+            drawTransitions(ctx, hoveredState, connectedStates, outgoingTransitions, isHovering) {
+                const transitions = this._transitions || [];
+                const defaults = this._defaults.transition || {};
+                const arrowColor = defaults.color || '#888888';
+                const lineWidth = defaults.lineWidth || 2;
+                const fontSize = defaults.fontSize || 11;
+                const fontFamily = defaults.fontFamily || 'Arial';
+                const noteColor = defaults.noteColor || '#999999';
+
+                const arrowCurve = this._layout.arrowCurve || 60;
+                const noteOffset = this._layout.noteOffset || 35;
+
+                this.transitionPaths = {};
+
+                transitions.forEach(t => {
+                    const fromPos = this.statePositions[t.from];
+                    const toPos = this.statePositions[t.to];
+                    if (!fromPos || !toPos) return;
+
+                    const fromX = fromPos.centerX;
+                    const fromY = fromPos.centerY;
+                    const toX = toPos.centerX;
+                    const toY = toPos.centerY;
+
+                    // Check if this transition should be highlighted
+                    const isHighlighted = isHovering &&
+                        (t.from === hoveredState ||
+                            (t.from === hoveredState && connectedStates.has(t.to)));
+
+                    const isDimmed = isHovering && !isHighlighted;
+
+                    const dx = toX - fromX;
+                    const dy = toY - fromY;
+                    const len = Math.sqrt(dx * dx + dy * dy);
+                    const nx = -dy / len;
+                    const ny = dx / len;
+                    const curveAmount = Math.min(arrowCurve, len * 0.35);
+                    const cpX = (fromX + toX) / 2 + nx * curveAmount;
+                    const cpY = (fromY + toY) / 2 + ny * curveAmount;
+
+                    this.transitionPaths[t.id] = {
+                        fromX, fromY, toX, toY, cpX, cpY,
+                        note: t.note || null,
+                        notePos: null
+                    };
+
+                    ctx.save();
+                    if (isDimmed) ctx.globalAlpha = 0.15;
+
+                    // Draw the curved line
+                    ctx.beginPath();
+                    ctx.moveTo(fromX, fromY);
+                    ctx.quadraticCurveTo(cpX, cpY, toX, toY);
+
+                    let color = t.color || arrowColor;
+                    let width = lineWidth;
+                    if (isHighlighted) {
+                        color = this.lightenColor(color, 80);
+                        width = lineWidth + 2;
+                    }
+
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = width;
+                    const style = t.arrowStyle || defaults.arrowStyle || 'solid';
+                    ctx.setLineDash(style === 'dashed' ? [8, 6] : []);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    // Draw V-sign chevron in the middle
+                    if (!isDimmed) {
+                        this.drawChevron(ctx, fromX, fromY, cpX, cpY, toX, toY, color);
+                    }
+
+                    // Draw label with offset from curve
+                    if (t.label && !isDimmed) {
+                        const t_pos = 0.4;
+                        const labelX = (1 - t_pos) * (1 - t_pos) * fromX + 2 * (1 - t_pos) * t_pos * cpX + t_pos * t_pos * toX;
+                        const labelY = (1 - t_pos) * (1 - t_pos) * fromY + 2 * (1 - t_pos) * t_pos * cpY + t_pos * t_pos * toY;
+
+                        const tangentX = 2 * (1 - t_pos) * (cpX - fromX) + 2 * t_pos * (toX - cpX);
+                        const tangentY = 2 * (1 - t_pos) * (cpY - fromY) + 2 * t_pos * (toY - cpY);
+                        const angle = Math.atan2(tangentY, tangentX);
+                        const normalX = -Math.sin(angle);
+                        const normalY = Math.cos(angle);
+
+                        const offsetDistance = 18;
+                        const finalX = labelX + normalX * offsetDistance;
+                        const finalY = labelY + normalY * offsetDistance;
+
+                        const labelColor = t.color || arrowColor;
+                        ctx.font = `${fontSize}px ${fontFamily}`;
+                        const metrics = ctx.measureText(t.label);
+                        const tw = metrics.width + 16;
+                        const th = fontSize + 12;
+
+                        ctx.save();
+                        ctx.translate(finalX, finalY);
+                        ctx.rotate(angle);
+
+                        ctx.fillStyle = 'rgba(30, 30, 30, 0.9)';
+                        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                        ctx.shadowBlur = 8;
+                        ctx.fillRect(-tw / 2, -th / 2, tw, th);
+                        ctx.shadowColor = 'transparent';
+                        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+                        ctx.lineWidth = 1;
+                        ctx.strokeRect(-tw / 2, -th / 2, tw, th);
+
+                        ctx.fillStyle = labelColor;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(t.label, 0, 0);
+                        ctx.restore();
+                    }
+
+                    // Draw note indicator
+                    if (t.note && !isDimmed) {
+                        const noteX = (fromX + toX) / 2 - nx * (noteOffset + 30);
+                        const noteY = (fromY + toY) / 2 - ny * (noteOffset + 30);
+                        this.transitionPaths[t.id].notePos = { x: noteX, y: noteY };
+
+                        ctx.beginPath();
+                        ctx.arc(noteX, noteY, 8, 0, Math.PI * 2);
+                        ctx.fillStyle = 'rgba(50, 50, 70, 0.95)';
+                        ctx.fill();
+                        ctx.strokeStyle = noteColor;
+                        ctx.lineWidth = 1.5;
+                        ctx.stroke();
+                        ctx.fillStyle = noteColor;
+                        ctx.font = 'bold 11px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText('i', noteX, noteY + 0.5);
+                    }
+
+                    ctx.restore();
+                });
+            }
+
+            drawChevron(ctx, fromX, fromY, cpX, cpY, toX, toY, color) {
+                const t = 0.5;
+                const x = (1 - t) * (1 - t) * fromX + 2 * (1 - t) * t * cpX + t * t * toX;
+                const y = (1 - t) * (1 - t) * fromY + 2 * (1 - t) * t * cpY + t * t * toY;
+                const tangentX = 2 * (1 - t) * (cpX - fromX) + 2 * t * (toX - cpX);
+                const tangentY = 2 * (1 - t) * (cpY - fromY) + 2 * t * (toY - cpY);
+                const angle = Math.atan2(tangentY, tangentX);
+                const size = 10;
+                const spread = 0.6;
+
+                const p1x = x - size * Math.cos(angle - spread);
+                const p1y = y - size * Math.sin(angle - spread);
+                const p2x = x - size * Math.cos(angle + spread);
+                const p2y = y - size * Math.sin(angle + spread);
+
+                ctx.save();
+                ctx.beginPath();
+                ctx.moveTo(p1x, p1y);
+                ctx.lineTo(x, y);
+                ctx.lineTo(p2x, p2y);
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2.5;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            getContrastColor(hexColor) {
+                const hex = hexColor.replace('#', '');
+                const r = parseInt(hex.substr(0, 2), 16);
+                const g = parseInt(hex.substr(2, 2), 16);
+                const b = parseInt(hex.substr(4, 6), 16);
+                const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+                return brightness > 128 ? '#000000' : '#FFFFFF';
+            }
+
+            // ============================================================
+            // HIGH QUALITY EXPORT WITH ZOOM PERCENTAGE
+            // ============================================================
+            renderToCanvas(exportCanvas, zoomPercent = 1) {
+                if (!this.data || !this.statePositions) return;
+
+                const ctx = exportCanvas.getContext('2d');
+
+                // Calculate bounds of all diagram elements
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+                for (const [id, pos] of Object.entries(this.statePositions)) {
+                    minX = Math.min(minX, pos.x);
+                    minY = Math.min(minY, pos.y);
+                    maxX = Math.max(maxX, pos.x + pos.width);
+                    maxY = Math.max(maxY, pos.y + pos.height);
+                }
+
+                for (const [id, path] of Object.entries(this.transitionPaths)) {
+                    minX = Math.min(minX, path.fromX, path.toX, path.cpX);
+                    minY = Math.min(minY, path.fromY, path.toY, path.cpY);
+                    maxX = Math.max(maxX, path.fromX, path.toX, path.cpX);
+                    maxY = Math.max(maxY, path.fromY, path.toY, path.cpY);
+                }
+
+                // Add padding
+                const padding = 80;
+                minX -= padding;
+                minY -= padding;
+                maxX += padding;
+                maxY += padding;
+
+                const diagramWidth = maxX - minX;
+                const diagramHeight = maxY - minY;
+
+                // Base resolution (similar to draw.io's standard)
+                const baseResolution = 1000;
+
+                // Calculate dimensions based on zoom percent
+                // zoomPercent: 1 = 100%, 2 = 200%, 3 = 300%, etc.
+                const scale = zoomPercent;
+
+                // Calculate export dimensions
+                let exportWidth, exportHeight;
+                const aspectRatio = diagramWidth / diagramHeight;
+
+                if (aspectRatio > 1) {
+                    exportWidth = Math.round(baseResolution * scale);
+                    exportHeight = Math.round(exportWidth / aspectRatio);
+                } else {
+                    exportHeight = Math.round(baseResolution * scale);
+                    exportWidth = Math.round(exportHeight * aspectRatio);
+                }
+
+                // Ensure minimum size
+                exportWidth = Math.max(exportWidth, 500);
+                exportHeight = Math.max(exportHeight, 500);
+
+                exportCanvas.width = exportWidth;
+                exportCanvas.height = exportHeight;
+
+                // Clear with background
+                const bgColor = this.data.style?.background || '#1e1e1e';
+                ctx.fillStyle = bgColor;
+                ctx.fillRect(0, 0, exportWidth, exportHeight);
+
+                // Calculate scale to fit exactly with the zoom
+                const scaleX = exportWidth / diagramWidth;
+                const scaleY = exportHeight / diagramHeight;
+                const fitScale = Math.min(scaleX, scaleY);
+
+                // Center the diagram
+                const offsetX = (exportWidth - diagramWidth * fitScale) / 2 - minX * fitScale;
+                const offsetY = (exportHeight - diagramHeight * fitScale) / 2 - minY * fitScale;
+
+                ctx.save();
+                ctx.translate(offsetX, offsetY);
+                ctx.scale(fitScale, fitScale);
+
+                // High quality rendering
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+
+                // Draw without hover effects (clean export)
+                this.drawTransitionsForExport(ctx);
+                this.drawStatesForExport(ctx);
+
+                ctx.restore();
+            }
+
+            drawStatesForExport(ctx) {
+                const defaults = this._defaults.state || {};
+                const terminalDefaults = this._defaults.terminal || {};
+                const stallDefaults = this._defaults.stall || {};
+
+                Object.keys(this.statePositions).forEach(id => {
+                    const pos = this.statePositions[id];
+                    const stateData = this._stateMap[id];
+                    const type = stateData.type || 'regular';
+
+                    let bgColor = defaults.color || '#2d2d2d';
+                    let borderColor = defaults.borderColor || '#666666';
+
+                    if (type === 'terminal') {
+                        bgColor = terminalDefaults.color || '#c62828';
+                        borderColor = terminalDefaults.borderColor || '#ef5350';
+                    } else if (type === 'stall') {
+                        bgColor = stallDefaults.color || '#1565c0';
+                        borderColor = stallDefaults.borderColor || '#42a5f5';
+                    }
+                    if (stateData.color) bgColor = stateData.color;
+
+                    const borderRadius = defaults.borderRadius || 8;
+                    const borderWidth = defaults.borderWidth || 2;
+                    const fontSize = defaults.fontSize || 14;
+                    const fontWeight = defaults.fontWeight || 'bold';
+                    const fontFamily = defaults.fontFamily || 'Arial';
+
+                    const x = pos.x, y = pos.y, w = pos.width, h = pos.height;
+
+                    ctx.shadowColor = 'rgba(0,0,0,0.3)';
+                    ctx.shadowBlur = 10;
+                    ctx.shadowOffsetX = 2;
+                    ctx.shadowOffsetY = 2;
+
+                    ctx.beginPath();
+                    ctx.moveTo(x + borderRadius, y);
+                    ctx.lineTo(x + w - borderRadius, y);
+                    ctx.quadraticCurveTo(x + w, y, x + w, y + borderRadius);
+                    ctx.lineTo(x + w, y + h - borderRadius);
+                    ctx.quadraticCurveTo(x + w, y + h, x + w - borderRadius, y + h);
+                    ctx.lineTo(x + borderRadius, y + h);
+                    ctx.quadraticCurveTo(x, y + h, x, y + h - borderRadius);
+                    ctx.lineTo(x, y + borderRadius);
+                    ctx.quadraticCurveTo(x, y, x + borderRadius, y);
+                    ctx.closePath();
+
+                    ctx.fillStyle = bgColor;
+                    ctx.fill();
+                    ctx.shadowColor = 'transparent';
+                    ctx.strokeStyle = borderColor;
+                    ctx.lineWidth = borderWidth;
+                    ctx.stroke();
+
+                    const textColor = this.getContrastColor(bgColor);
+                    ctx.fillStyle = textColor;
+                    ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+
+                    const label = stateData.label || id;
+                    const maxWidth = w - 20;
+                    const lines = this.wrapText(ctx, label, maxWidth);
+                    const lineHeight = fontSize * 1.2;
+                    const totalHeight = lines.length * lineHeight;
+                    const startY = y + h / 2 - totalHeight / 2 + lineHeight / 2;
+
+                    lines.forEach((line, index) => {
+                        ctx.fillText(line, x + w / 2, startY + index * lineHeight);
+                    });
+
+                    if (type === 'terminal') {
+                        ctx.fillStyle = textColor;
+                        ctx.font = '12px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'bottom';
+                        ctx.fillText('⏹', x + w / 2, y - 4);
+                    } else if (type === 'stall') {
+                        ctx.fillStyle = textColor;
+                        ctx.font = '12px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'bottom';
+                        ctx.fillText('⏸', x + w / 2, y - 4);
+                    }
+                });
+            }
+
+            drawTransitionsForExport(ctx) {
+                const transitions = this._transitions || [];
+                const defaults = this._defaults.transition || {};
+                const arrowColor = defaults.color || '#888888';
+                const lineWidth = defaults.lineWidth || 2;
+                const fontSize = defaults.fontSize || 11;
+                const fontFamily = defaults.fontFamily || 'Arial';
+                const noteColor = defaults.noteColor || '#999999';
+
+                const arrowCurve = this._layout.arrowCurve || 60;
+                const noteOffset = this._layout.noteOffset || 35;
+
+                transitions.forEach(t => {
+                    const fromPos = this.statePositions[t.from];
+                    const toPos = this.statePositions[t.to];
+                    if (!fromPos || !toPos) return;
+
+                    const fromX = fromPos.centerX;
+                    const fromY = fromPos.centerY;
+                    const toX = toPos.centerX;
+                    const toY = toPos.centerY;
+
+                    const dx = toX - fromX;
+                    const dy = toY - fromY;
+                    const len = Math.sqrt(dx * dx + dy * dy);
+                    const nx = -dy / len;
+                    const ny = dx / len;
+                    const curveAmount = Math.min(arrowCurve, len * 0.35);
+                    const cpX = (fromX + toX) / 2 + nx * curveAmount;
+                    const cpY = (fromY + toY) / 2 + ny * curveAmount;
+
+                    ctx.beginPath();
+                    ctx.moveTo(fromX, fromY);
+                    ctx.quadraticCurveTo(cpX, cpY, toX, toY);
+
+                    const color = t.color || arrowColor;
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = lineWidth;
+                    const style = t.arrowStyle || defaults.arrowStyle || 'solid';
+                    ctx.setLineDash(style === 'dashed' ? [8, 6] : []);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    this.drawChevron(ctx, fromX, fromY, cpX, cpY, toX, toY, color);
+
+                    if (t.label) {
+                        const t_pos = 0.4;
+                        const labelX = (1 - t_pos) * (1 - t_pos) * fromX + 2 * (1 - t_pos) * t_pos * cpX + t_pos * t_pos * toX;
+                        const labelY = (1 - t_pos) * (1 - t_pos) * fromY + 2 * (1 - t_pos) * t_pos * cpY + t_pos * t_pos * toY;
+
+                        const tangentX = 2 * (1 - t_pos) * (cpX - fromX) + 2 * t_pos * (toX - cpX);
+                        const tangentY = 2 * (1 - t_pos) * (cpY - fromY) + 2 * t_pos * (toY - cpY);
+                        const angle = Math.atan2(tangentY, tangentX);
+                        const normalX = -Math.sin(angle);
+                        const normalY = Math.cos(angle);
+
+                        const offsetDistance = 18;
+                        const finalX = labelX + normalX * offsetDistance;
+                        const finalY = labelY + normalY * offsetDistance;
+
+                        ctx.save();
+                        const labelColor = t.color || arrowColor;
+                        ctx.font = `${fontSize}px ${fontFamily}`;
+                        const metrics = ctx.measureText(t.label);
+                        const tw = metrics.width + 16;
+                        const th = fontSize + 12;
+
+                        ctx.translate(finalX, finalY);
+                        ctx.rotate(angle);
+
+                        ctx.fillStyle = 'rgba(30, 30, 30, 0.9)';
+                        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                        ctx.shadowBlur = 8;
+                        ctx.fillRect(-tw / 2, -th / 2, tw, th);
+                        ctx.shadowColor = 'transparent';
+                        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+                        ctx.lineWidth = 1;
+                        ctx.strokeRect(-tw / 2, -th / 2, tw, th);
+
+                        ctx.fillStyle = labelColor;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(t.label, 0, 0);
+                        ctx.restore();
+                    }
+
+                    if (t.note) {
+                        const noteX = (fromX + toX) / 2 - nx * (noteOffset + 30);
+                        const noteY = (fromY + toY) / 2 - ny * (noteOffset + 30);
+
+                        ctx.beginPath();
+                        ctx.arc(noteX, noteY, 8, 0, Math.PI * 2);
+                        ctx.fillStyle = 'rgba(50, 50, 70, 0.95)';
+                        ctx.fill();
+                        ctx.strokeStyle = noteColor;
+                        ctx.lineWidth = 1.5;
+                        ctx.stroke();
+                        ctx.fillStyle = noteColor;
+                        ctx.font = 'bold 11px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText('i', noteX, noteY + 0.5);
+                    }
+                });
+            }
+        }
+
+        // ============================================================
+        // APPLICATION
+        // ============================================================
+        const canvas = document.getElementById('diagramCanvas');
+        const editor = document.getElementById('jsonEditor');
+        const errorMsg = document.getElementById('errorMessage');
+        const tooltip = document.getElementById('noteTooltip');
+        const statusBar = document.getElementById('statusBar');
+        const leftPanel = document.getElementById('leftPanel');
+
+        let renderer = new DiagramRenderer(canvas, tooltip, statusBar);
+
+        // ============================================================
+        // LOCAL STORAGE
+        // ============================================================
+        const JSON_STORAGE_KEY = 'diagram_json_data';
+        const POSITIONS_STORAGE_KEY = 'diagram_state_positions';
+
+        function loadFromStorage(key) {
+            try {
+                const saved = localStorage.getItem(key);
+                if (saved) return JSON.parse(saved);
+            } catch (e) { }
+            return null;
+        }
+
+        function saveToStorage(key, data) {
+            try {
+                localStorage.setItem(key, JSON.stringify(data));
+            } catch (e) { }
+        }
+
+        function loadJsonFromStorage() {
+            const saved = loadFromStorage(JSON_STORAGE_KEY);
+            if (saved && saved.states && saved.transitions) {
+                return JSON.stringify(saved, null, 2);
+            }
+            return null;
+        }
+
+        function saveJsonToStorage(jsonString) {
+            try {
+                const parsed = JSON.parse(jsonString);
+                saveToStorage(JSON_STORAGE_KEY, parsed);
+            } catch (e) { }
+        }
+
+        function loadStatePositions() {
+            return loadFromStorage(POSITIONS_STORAGE_KEY) || null;
+        }
+
+        function saveStatePositions(positions) {
+            saveToStorage(POSITIONS_STORAGE_KEY, positions);
+        }
+
+        // ============================================================
+        // RENDER FUNCTION
+        // ============================================================
+        function renderDiagram() {
+            try {
+                const jsonData = JSON.parse(editor.value);
+                errorMsg.classList.remove('show');
+                errorMsg.className = 'error-message';
+
+                const savedPositions = loadStatePositions();
+                renderer.loadData(jsonData, savedPositions);
+                saveJsonToStorage(editor.value);
+            } catch (e) {
+                showError('Invalid JSON: ' + e.message);
+            }
+        }
+
+        function showError(message) {
+            errorMsg.textContent = '❌ ' + message;
+            errorMsg.className = 'error-message show';
+            setTimeout(() => {
+                errorMsg.classList.remove('show');
+            }, 5000);
+        }
+
+        function showSuccess(message) {
+            errorMsg.textContent = '✅ ' + message;
+            errorMsg.className = 'error-message success show';
+            setTimeout(() => {
+                errorMsg.classList.remove('show');
+                errorMsg.className = 'error-message';
+            }, 3000);
+        }
+
+        // ============================================================
+        // EXPORT FUNCTIONALITY WITH ZOOM
+        // ============================================================
+        function toggleExportDropdown() {
+            const dropdown = document.getElementById('exportDropdown');
+            dropdown.classList.toggle('show');
+        }
+
+        document.addEventListener('click', (e) => {
+            const dropdown = document.getElementById('exportDropdown');
+            if (!e.target.closest('.export-dropdown')) {
+                dropdown.classList.remove('show');
+            }
+        });
+
+        function exportDiagram(format, zoomLevel = 1) {
+            const dropdown = document.getElementById('exportDropdown');
+            dropdown.classList.remove('show');
+
+            // zoomLevel: 1 = 100%, 2 = 200%, 3 = 300%, 4 = 400%, 5 = 500%
+            const zoomPercent = zoomLevel * 100;
+
+            const exportCanvas = document.createElement('canvas');
+
+            // Render with the zoom level
+            renderer.renderToCanvas(exportCanvas, zoomLevel);
+
+            // Convert to image
+            const link = document.createElement('a');
+            const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
+            const extension = format === 'png' ? 'png' : 'jpg';
+            const qualityParam = format === 'png' ? undefined : 0.95;
+
+            const zoomNames = {
+                1: '100%',
+                2: '200%',
+                3: '300%',
+                4: '400%',
+                5: '500%'
+            };
+
+            link.download = `diagram_${zoomNames[zoomLevel]}_${format.toUpperCase()}.${extension}`;
+            link.href = exportCanvas.toDataURL(mimeType, qualityParam);
+            link.click();
+
+            showSuccess(`Diagram exported as ${format.toUpperCase()} (${zoomNames[zoomLevel]} zoom)`);
+        }
+
+        // ============================================================
+        // PANEL TOGGLE
+        // ============================================================
+        let isPanelOpen = true;
+
+        function togglePanel() {
+            const panel = document.getElementById('leftPanel');
+            const toggleBtn = panel.querySelector('.toggle-btn');
+            const rightToggleBtn = document.querySelector('.right-panel .toggle-panel-btn');
+
+            isPanelOpen = !isPanelOpen;
+
+            if (isPanelOpen) {
+                panel.classList.remove('collapsed');
+                toggleBtn.textContent = '◀';
+                rightToggleBtn.textContent = '▶';
+                rightToggleBtn.style.display = 'none';
+            } else {
+                panel.classList.add('collapsed');
+                toggleBtn.textContent = '▶';
+                rightToggleBtn.textContent = '◀';
+                rightToggleBtn.style.display = 'block';
+            }
+
+            setTimeout(() => {
+                renderer.setupCanvas();
+                renderer.render();
+            }, 350);
+        }
+
+        const rightToggleBtn = document.querySelector('.right-panel .toggle-panel-btn');
+        rightToggleBtn.style.display = 'none';
+
+        // ============================================================
+        // INITIAL LOAD
+        // ============================================================
+        const savedJson = loadJsonFromStorage();
+        editor.value = savedJson || JSON.stringify(defaultJSON, null, 2);
+
+        setTimeout(() => {
+            renderDiagram();
+        }, 100);
+
+        // ============================================================
+        // SAVE JSON ON INPUT
+        // ============================================================
+        let saveTimeout = null;
+        editor.addEventListener('input', () => {
+            clearTimeout(saveTimeout);
+            saveTimeout = setTimeout(() => {
+                try {
+                    JSON.parse(editor.value);
+                    saveJsonToStorage(editor.value);
+                } catch (e) { }
+            }, 500);
+        });
+
+        // ============================================================
+        // KEYBOARD SHORTCUTS
+        // ============================================================
+        editor.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'Enter') {
+                e.preventDefault();
+                renderDiagram();
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'b') {
+                e.preventDefault();
+                togglePanel();
+            }
+            if (e.ctrlKey && e.key === 'e') {
+                e.preventDefault();
+                toggleExportDropdown();
+            }
+        });
+
+        // ============================================================
+        // GLOBAL EXPORTS
+        // ============================================================
+        window.renderDiagram = renderDiagram;
+        window.togglePanel = togglePanel;
+        window.exportDiagram = exportDiagram;
+        window.toggleExportDropdown = toggleExportDropdown;
+
+        // ============================================================
+        // RESIZE HANDLER
+        // ============================================================
+        window.addEventListener('resize', () => {
+            renderer.setupCanvas();
+            renderer.render();
+        });
+    </script>
+</body>
+
+</html>
